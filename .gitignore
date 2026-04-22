@@ -11,6 +11,7 @@ db/
 
 # Streamlit
 .streamlit/
+streamlit*.log
 
 # OS
 .DS_Store
