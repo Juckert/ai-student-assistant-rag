@@ -1,0 +1,60 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+    # Uncomment to enable GPU support (requires nvidia-container-toolkit):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # Downloads qwen2.5:7b into the ollama server on first run, then exits.
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: ollama-init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["ollama", "pull", "qwen2.5:7b"]
+    restart: "no"
+
+  assistant:
+    build: .
+    container_name: assistant
+    depends_on:
+      ollama:
+        condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data          # uploaded documents (persisted on host)
+      - ./db:/app/db              # vector index (persisted on host)
+      - hf_cache:/root/.cache/huggingface  # HuggingFace model cache
+    environment:
+      OLLAMA_URL: http://ollama:11434/api/generate
+      OLLAMA_MODEL: qwen2.5:7b
+      EMBEDDING_MODEL_NAME: intfloat/multilingual-e5-base
+      FALLBACK_EMBEDDING_MODEL_NAME: sentence-transformers/all-MiniLM-L6-v2
+    restart: unless-stopped
+
+volumes:
+  ollama_models:   # Ollama model weights
+  hf_cache:        # HuggingFace embedding model cache
