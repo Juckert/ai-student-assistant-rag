@@ -61,6 +61,15 @@ services:
       OLLAMA_MODEL: qwen2.5:7b
       EMBEDDING_MODEL_NAME: intfloat/multilingual-e5-base
       FALLBACK_EMBEDDING_MODEL_NAME: sentence-transformers/all-MiniLM-L6-v2
+    # Tests run at every startup via entrypoint.sh (output visible in docker-compose logs).
+    # Healthcheck re-runs them periodically; output is redirected to container stdout
+    # so it appears in `docker logs assistant`.
+    healthcheck:
+      test: ["CMD-SHELL", "python -m pytest /app/tests/ -v --tb=short > /proc/1/fd/1 2>&1"]
+      interval: 300s
+      timeout: 60s
+      retries: 3
+      start_period: 120s
     restart: unless-stopped
 
 volumes:

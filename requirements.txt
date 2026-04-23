@@ -5,3 +5,4 @@ torch>=2.2.0
 transformers>=4.40.0
 pypdf>=4.1.0
 faiss-cpu>=1.8.0
+pytest>=8.0.0

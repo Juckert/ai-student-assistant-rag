@@ -15,9 +15,8 @@ RUN pip install --no-cache-dir \
 
 COPY . .
 
+RUN chmod +x /app/entrypoint.sh
+
 EXPOSE 8501
 
-CMD ["python", "-m", "streamlit", "run", "app/app.py", \
-     "--server.headless", "true", \
-     "--server.port", "8501", \
-     "--server.address", "0.0.0.0"]
+ENTRYPOINT ["/app/entrypoint.sh"]
