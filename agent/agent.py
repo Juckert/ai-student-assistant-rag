@@ -5,6 +5,18 @@ from requests import RequestException
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
 MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+NO_INFO_ANSWER = "В базе знаний нет информации."
+NO_INFO_USER_MESSAGE = (
+    "В базе знаний нет информации. "
+    "Мы уже передали этот вопрос администратору и скоро актуализируем информацию."
+)
+
+
+def is_no_info_answer(answer):
+    # This also matches the friendlier saved message shown to students.
+    normalized_answer = " ".join((answer or "").split()).casefold()
+    normalized_target = NO_INFO_ANSWER.casefold()
+    return normalized_target in normalized_answer
 
 
 def generate_answer(question, context_chunks):
@@ -14,14 +26,15 @@ def generate_answer(question, context_chunks):
     context = "\n\n".join(context_chunks)
 
     if not context.strip():
-        return "В базе знаний нет информации."
+        # Avoid unnecessary model calls when retrieval returned nothing useful.
+        return NO_INFO_ANSWER
 
     prompt = f"""
 Ты — AI-ассистент студента.
 
 Твоя задача:
 - Отвечать только на основе контекста
-- Если ответа нет в контексте — скажи: "В базе знаний нет информации."
+- Если ответа нет в контексте — скажи: "{NO_INFO_ANSWER}"
 - Не придумывай ничего от себя
 - Если в контексте есть прямой ответ, передай его максимально конкретно и кратко
 - Не добавляй предположения, общие советы или фразы вроде "обратитесь к консультанту", если этого нет в контексте
