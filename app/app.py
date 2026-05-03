@@ -6,12 +6,8 @@ import streamlit as st
 
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT_DIR not in sys.path:
-    # Streamlit runs this file as a script, so add the project root for local imports.
     sys.path.insert(0, ROOT_DIR)
 
-from agent.agent import MODEL as DEFAULT_OLLAMA_MODEL
-from agent.agent import NO_INFO_USER_MESSAGE, generate_answer, is_no_info_answer
-from knowledge_base import append_manual_qa
 from storage import (
     answer_unanswered_question,
     authenticate_user,
@@ -28,26 +24,50 @@ from storage import (
     register_student,
     save_question_answer,
 )
-from rag.ingest import ingest, load_db, save_db
-from rag.retrieve import search
+from knowledge_base import append_manual_qa
+from backend_client import (
+    is_backend_available,
+    get_kb_index_id,
+    get_or_create_kb_index,
+    upload_files_to_index,
+    build_kb_index,
+    create_backend_session,
+    link_index_to_session,
+    rag_chat,
+)
 
 st.set_page_config(page_title="ИИ-ассистент студента", layout="wide")
 
 DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
 SUPPORTED_EXTENSIONS = (".pdf", ".txt", ".csv")
 
+# Phrases that indicate the RAG found no relevant information
+_NO_INFO_PHRASES = (
+    "i don't know",
+    "i do not know",
+    "no relevant information",
+    "cannot find",
+    "не нашёл",
+    "не найдено",
+    "нет информации",
+    "не могу найти",
+    "не содержит информации",
+)
+
+
+def _is_no_info_answer(text: str) -> bool:
+    low = text.lower()
+    return any(phrase in low for phrase in _NO_INFO_PHRASES)
+
 
 def get_supported_data_files():
     if not os.path.exists(DATA_DIR):
         return []
-
     files = []
-
     for name in os.listdir(DATA_DIR):
         path = os.path.join(DATA_DIR, name)
         if os.path.isfile(path) and name.lower().endswith(SUPPORTED_EXTENSIONS):
             files.append(path)
-
     return sorted(files)
 
 
@@ -62,35 +82,51 @@ def format_timestamp(value):
 def ensure_runtime_state():
     initialize_storage()
 
-    index, docs = load_db()
-
-    # Session state keeps these objects across Streamlit reruns.
-    if "index" not in st.session_state:
-        st.session_state.index = index
-
-    if "docs" not in st.session_state:
-        st.session_state.docs = docs
-
     if "auth_user" not in st.session_state:
         st.session_state.auth_user = None
 
     if "selected_chat_id" not in st.session_state:
         st.session_state.selected_chat_id = None
 
+    # One backend session per Streamlit session (used for RAG routing context)
+    if "backend_session_id" not in st.session_state:
+        st.session_state.backend_session_id = None
+
+    # Cached KB index ID to avoid repeated API lookups
+    if "kb_index_id" not in st.session_state:
+        st.session_state.kb_index_id = None
+
+
+def _ensure_backend_session(title: str = "Новый диалог") -> bool:
+    """
+    Create a backend session and link the shared KB index to it.
+    Stores session_id and index_id in session_state. Returns True on success.
+    """
+    if st.session_state.backend_session_id:
+        return True
+
+    sid = create_backend_session(title)
+    if not sid:
+        return False
+    st.session_state.backend_session_id = sid
+
+    kb_id = st.session_state.kb_index_id or get_or_create_kb_index()
+    if kb_id:
+        link_index_to_session(sid, kb_id)
+        st.session_state.kb_index_id = kb_id
+
+    return True
+
 
 def get_current_user():
     auth_user = st.session_state.get("auth_user")
-
     if not auth_user:
         return None
-
     fresh_user = get_user_by_id(auth_user["id"])
-
     if fresh_user is None:
         st.session_state.auth_user = None
         st.session_state.selected_chat_id = None
         return None
-
     st.session_state.auth_user = fresh_user
     return fresh_user
 
@@ -101,7 +137,6 @@ def render_login_screen():
 
     with login_tab:
         st.subheader("Вход в систему")
-
         with st.form("login_form"):
             username = st.text_input("Логин")
             password = st.text_input("Пароль", type="password")
@@ -109,7 +144,6 @@ def render_login_screen():
 
         if submitted:
             user = authenticate_user(username, password)
-
             if user is None:
                 st.error("Неверный логин или пароль.")
             else:
@@ -124,7 +158,6 @@ def render_login_screen():
 
     with register_tab:
         st.subheader("Создать аккаунт студента")
-
         with st.form("register_form"):
             display_name = st.text_input("Имя")
             new_username = st.text_input("Логин")
@@ -152,16 +185,20 @@ def render_sidebar(user):
     st.sidebar.write(f"Роль: **{role_label(user['role'])}**")
 
     if user["role"] == "admin":
-        st.sidebar.write(f"🤖 Модель: `{DEFAULT_OLLAMA_MODEL}`")
-
-        if st.session_state.docs:
-            st.sidebar.success(f"База знаний загружена: {len(st.session_state.docs)} фрагментов")
+        backend_ok = is_backend_available()
+        if backend_ok:
+            kb_id = st.session_state.kb_index_id or get_kb_index_id()
+            if kb_id:
+                st.sidebar.success("База знаний: индекс готов")
+            else:
+                st.sidebar.warning("База знаний пока не создана")
         else:
-            st.sidebar.warning("База знаний пока не загружена")
+            st.sidebar.error("Backend недоступен (порт 8000)")
 
     if st.sidebar.button("🚪 Выйти", use_container_width=True):
         st.session_state.auth_user = None
         st.session_state.selected_chat_id = None
+        st.session_state.backend_session_id = None
         st.rerun()
 
 
@@ -172,10 +209,17 @@ def role_label(role):
 def render_sources(sources):
     if not sources:
         return
-
     with st.expander("📚 Источники"):
         for source in sources:
-            st.write(source)
+            if isinstance(source, dict):
+                text = source.get("text") or source.get("content") or str(source)
+                score = source.get("score")
+                label = f"{text[:300]}..." if len(text) > 300 else text
+                if score is not None:
+                    label = f"[релевантность: {score:.2f}] {label}"
+                st.write(label)
+            else:
+                st.write(str(source)[:300])
 
 
 def render_student_welcome():
@@ -208,25 +252,17 @@ def render_student_welcome():
 
 def render_student_updates(user):
     answered_questions = list_answered_questions(user["id"])
-
     if not answered_questions:
         return
 
     st.subheader("📬 Появились новые ответы")
-
     for item in answered_questions:
         with st.expander(item["question"], expanded=True):
             st.write(f"Вопрос: **{item['question']}**")
             st.write(f"Ответ администратора: **{item['answer']}**")
-
             if item["answered_at"]:
                 st.write(f"Время обновления: **{format_timestamp(item['answered_at'])}**")
-
-            if st.button(
-                "Понятно",
-                key=f"mark_answer_seen_{item['id']}",
-                use_container_width=True,
-            ):
+            if st.button("Понятно", key=f"mark_answer_seen_{item['id']}", use_container_width=True):
                 mark_answered_question_seen(item["id"], user["id"])
                 st.rerun()
 
@@ -261,6 +297,8 @@ def render_student_chat(user):
 
     if st.sidebar.button("➕ Новый диалог", use_container_width=True):
         st.session_state.selected_chat_id = None
+        # Reset backend session so the new chat gets a fresh context
+        st.session_state.backend_session_id = None
         st.rerun()
 
     if st.session_state.selected_chat_id is None:
@@ -276,45 +314,50 @@ def render_student_chat(user):
         for message in messages:
             with st.chat_message("user" if message["role"] == "user" else "assistant"):
                 st.write(message["content"])
-                # "No info" answers should not show unrelated retrieved chunks.
-                if message["role"] == "assistant" and not is_no_info_answer(message["content"]):
-                    render_sources(message["sources"])
+                if message["role"] == "assistant":
+                    render_sources(message.get("sources", []))
 
     question = st.chat_input("💬 Напишите ваш вопрос")
-
     if not question:
         return
 
-    if st.session_state.index is None:
-        st.warning("📭 База знаний пуста. Сначала администратор должен собрать индекс.")
+    # Check backend availability before attempting a query
+    if not is_backend_available():
+        st.error("Backend недоступен. Убедитесь, что сервер запущен на порту 8000.")
+        return
+
+    # Ensure we have a backend session with the KB index linked
+    if not _ensure_backend_session(title=question[:60]):
+        st.error("Не удалось создать сессию на backend. Проверьте, запущен ли сервер.")
         return
 
     with st.spinner("🔎 Ищу ответ в базе знаний..."):
         try:
-            chunks = search(
-                question,
-                st.session_state.index,
-                st.session_state.docs,
-                k=2,
-            )
-            answer = generate_answer(question, chunks)
-            sources = chunks
+            answer, source_docs = rag_chat(st.session_state.backend_session_id, question)
 
-            if is_no_info_answer(answer):
-                # Save a user-friendly answer, but keep the original question for admin review.
-                answer = NO_INFO_USER_MESSAGE
-                sources = []
+            no_info = _is_no_info_answer(answer)
+            if no_info:
+                display_answer = (
+                    "Точного ответа в базе знаний не нашлось. "
+                    "Вопрос передан администратору."
+                )
+                sources_to_save: list = []
+            else:
+                display_answer = answer
+                sources_to_save = source_docs
 
             chat_id = save_question_answer(
                 user["id"],
                 question,
-                answer,
-                sources,
+                display_answer,
+                sources_to_save,
                 chat_id=st.session_state.selected_chat_id,
             )
-            if is_no_info_answer(answer):
+
+            if no_info:
                 queue_unanswered_question(user["id"], question, chat_id=chat_id)
                 st.session_state.unanswered_forwarded_notice = True
+
             st.session_state.selected_chat_id = chat_id
             st.rerun()
         except Exception as exc:
@@ -324,11 +367,9 @@ def render_student_chat(user):
 def format_chat_label(chat_id, chats):
     if chat_id == 0:
         return "Новый диалог"
-
     for chat in chats:
         if chat["id"] == chat_id:
             return chat["title"]
-
     return f"Диалог {chat_id}"
 
 
@@ -337,21 +378,17 @@ def render_admin_panel(user):
     st.caption("Загрузка и обновление базы знаний")
 
     users = list_users()
-    student_count = len([user for user in users if user["role"] == "student"])
+    student_count = len([u for u in users if u["role"] == "student"])
     unanswered_questions = list_unanswered_questions()
+
+    kb_id = st.session_state.kb_index_id or get_kb_index_id()
+    st.session_state.kb_index_id = kb_id
 
     st.markdown(
         """
         <style>
-        /* Streamlit metric cards need a fixed height to stay aligned. */
-        div[data-testid="stMetric"] {
-            min-height: 120px;
-        }
-
-        div[data-testid="stMetricLabel"] {
-            min-height: 48px;
-            align-items: start;
-        }
+        div[data-testid="stMetric"] { min-height: 120px; }
+        div[data-testid="stMetricLabel"] { min-height: 48px; align-items: start; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -359,9 +396,9 @@ def render_admin_panel(user):
 
     metric_columns = st.columns(5)
     metrics = [
-        ("Фрагментов в базе", len(st.session_state.docs) if st.session_state.docs else 0),
+        ("Backend", "Доступен" if is_backend_available() else "Недоступен"),
+        ("Индекс базы знаний", "Готов" if kb_id else "Не создан"),
         ("Файлов в data", len(get_supported_data_files())),
-        ("Всего пользователей", len(users)),
         ("Студентов", student_count),
         ("Вопросов без ответа", len(unanswered_questions)),
     ]
@@ -390,20 +427,19 @@ def render_admin_panel(user):
     if file:
         os.makedirs(DATA_DIR, exist_ok=True)
         path = os.path.join(DATA_DIR, file.name)
-
         with open(path, "wb") as target_file:
             target_file.write(file.getbuffer())
 
         if st.button("Построить индекс по загруженному файлу", use_container_width=True):
-            build_index(path, success_message="База знаний успешно обновлена.")
+            _build_index([path], success_message="База знаний успешно обновлена.")
 
     elif selected_existing_file and st.button("Построить индекс из data", use_container_width=True):
         source_files = (
             existing_files
             if selected_existing_file == "Все файлы из папки data"
-            else selected_existing_file
+            else [selected_existing_file]
         )
-        build_index(source_files, success_message="База знаний обновлена из папки data.")
+        _build_index(source_files, success_message="База знаний обновлена из папки data.")
 
     st.subheader("📨 Вопросы без ответа")
     if not unanswered_questions:
@@ -434,7 +470,7 @@ def render_admin_panel(user):
                             st.error("Введите ответ перед сохранением.")
                         else:
                             append_manual_qa(item["question"], normalized_answer)
-                            rebuilt = build_index(
+                            rebuilt = _build_index(
                                 get_supported_data_files(),
                                 success_message="База знаний обновлена, ответ добавлен.",
                             )
@@ -457,29 +493,56 @@ def render_admin_panel(user):
     st.dataframe(
         [
             {
-                "ID": user["id"],
-                "Логин": user["username"],
-                "Имя": user["display_name"],
-                "Роль": role_label(user["role"]),
-                "Создан": user["created_at"],
+                "ID": u["id"],
+                "Логин": u["username"],
+                "Имя": u["display_name"],
+                "Роль": role_label(u["role"]),
+                "Создан": u["created_at"],
             }
-            for user in users
+            for u in users
         ],
         use_container_width=True,
         hide_index=True,
     )
 
 
-def build_index(source_files, success_message):
-    st.info("Обработка документов...")
+def _build_index(source_files: list[str], success_message: str) -> bool:
+    """Upload files to the backend KB index and trigger RAG indexing. Returns True on success."""
+    if not is_backend_available():
+        st.error("Backend недоступен. Убедитесь, что сервер запущен на порту 8000.")
+        return False
+
+    st.info("Загрузка файлов в базу знаний...")
 
     try:
-        index, docs = ingest(source_files)
-        save_db(index, docs)
-        st.session_state.index = index
-        st.session_state.docs = docs
-        st.success(success_message)
-        return True
+        kb_id = get_or_create_kb_index()
+        if not kb_id:
+            st.error("Не удалось создать индекс на backend.")
+            return False
+
+        files_payload: list[tuple[str, bytes]] = []
+        for path in source_files:
+            with open(path, "rb") as f:
+                files_payload.append((os.path.basename(path), f.read()))
+
+        uploaded = upload_files_to_index(kb_id, files_payload)
+        if not uploaded:
+            st.error("Не удалось загрузить файлы на backend.")
+            return False
+
+        st.info(f"Загружено файлов: {len(uploaded)}. Запускаю индексирование...")
+        ok, msg = build_kb_index(kb_id)
+
+        if ok:
+            st.session_state.kb_index_id = kb_id
+            # Reset backend session so the next student query picks up the new index
+            st.session_state.backend_session_id = None
+            st.success(success_message)
+            return True
+
+        st.error(f"Ошибка индексирования: {msg}")
+        return False
+
     except Exception as exc:
         st.error(str(exc))
         return False
