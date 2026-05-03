@@ -45,6 +45,7 @@ class EmbeddingModel:
 
         if local_model_path is not None:
             try:
+                # Prefer the local Hugging Face cache to avoid unnecessary downloads.
                 self.tokenizer = AutoTokenizer.from_pretrained(
                     local_model_path,
                     local_files_only=True,
@@ -116,6 +117,7 @@ def build_embedding_model(model_name):
 # MODEL
 @lru_cache(maxsize=1)
 def get_model():
+    # Keep the embedding model loaded once for both indexing and retrieval.
     try:
         return build_embedding_model(EMBEDDING_MODEL_NAME)
     except Exception as primary_exc:
@@ -166,6 +168,7 @@ def read_csv(file_path):
             if not question or not answer:
                 continue
 
+            # Store question, answer and metadata in one chunk so they stay together in search.
             topic = (row.get("question_topic") or "").strip()
             year = (row.get("question_year") or "").strip()
             course = (row.get("question_course") or "").strip()
@@ -233,6 +236,7 @@ def ingest(file_paths):
     embeddings = np.asarray(embeddings, dtype=np.float32)
 
     if faiss is not None:
+        # Use FAISS when available, otherwise fall back to a NumPy index with the same interface.
         index = faiss.IndexFlatL2(embeddings.shape[1])
         index.add(embeddings)
     else:
@@ -253,6 +257,7 @@ def save_db(index, chunks):
         if os.path.exists(embeddings_path):
             os.remove(embeddings_path)
     else:
+        # Persist raw embeddings only for the NumPy fallback index.
         np.save(embeddings_path, index.embeddings)
         if os.path.exists(faiss_path):
             os.remove(faiss_path)
@@ -275,6 +280,7 @@ def load_db():
     if has_faiss_index and faiss is not None:
         index = faiss.read_index(faiss_path)
     elif has_numpy_index:
+        # Rebuild the in-memory fallback index from saved embeddings.
         embeddings = np.load(embeddings_path)
         index = NumpyIndex(embeddings)
     else:

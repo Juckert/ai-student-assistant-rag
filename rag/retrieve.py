@@ -92,6 +92,7 @@ def search(query, index, chunks, k=1):
         return []
 
     model = get_model()
+    # Fetch a wider pool first, then re-rank it with simple lexical overlap.
     fetch_k = min(len(chunks), max(k * 4, 8))
 
     query_vec = model.encode(
@@ -117,6 +118,7 @@ def search(query, index, chunks, k=1):
             {
                 "chunk": chunk,
                 "distance": float(distances[0][position]),
+                # Overlap helps filter semantically close but off-topic chunks.
                 "overlap": lexical_overlap(query, chunk),
             }
         )
@@ -143,6 +145,7 @@ def search(query, index, chunks, k=1):
             candidate["overlap"] > 0 and candidate["overlap"] >= max(1, best_overlap - 1)
         )
 
+        # Keep only candidates that are close to the best hit both semantically and lexically.
         if is_close_enough and has_enough_overlap:
             results.append(candidate["chunk"])
 
