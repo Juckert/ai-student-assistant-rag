@@ -40,6 +40,17 @@ services:
     entrypoint: ["/bin/sh", "-c", "until ollama pull qwen2.5:7b; do echo 'retrying...'; sleep 3; done"]
     restart: "no"
 
+  rag_systemc:
+    container_name: ollama-init
+    networks: [ai-net]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c", "until ollama pull qwen2.5:7b; do echo 'retrying...'; sleep 3; done"]
+    restart: "no"
+
   assistant:
     build: .
     container_name: assistant
