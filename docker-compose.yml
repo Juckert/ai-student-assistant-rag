@@ -2,6 +2,14 @@ networks:
   ai-net:
     driver: bridge
 
+volumes:
+  ollama_models:
+  hf_cache:
+  lancedb_data:
+  shared_uploads:
+  index_store:
+  backend_db:
+
 services:
   ollama:
     image: ollama/ollama:latest
@@ -18,7 +26,7 @@ services:
       retries: 12
       start_period: 30s
     restart: unless-stopped
-    # Раскомментировать если требуется GPU inference. Убедитесь, что драйвер nvidia-container-toolkit установлен на хосте.
+    # Раскомментировать для GPU inference (требуется nvidia-container-toolkit):
     # deploy:
     #   resources:
     #     reservations:
@@ -27,7 +35,6 @@ services:
     #           count: all
     #           capabilities: [gpu]
 
-  # Downloads qwen2.5:7b into the ollama server on first run
   ollama-init:
     image: ollama/ollama:latest
     container_name: ollama-init
@@ -37,23 +44,14 @@ services:
         condition: service_healthy
     environment:
       OLLAMA_HOST: http://ollama:11434
-    entrypoint: ["/bin/sh", "-c", "until ollama pull qwen2.5:7b; do echo 'retrying...'; sleep 3; done"]
+    entrypoint: ["/bin/sh", "-c", "until ollama pull qwen3:8b; do echo 'retrying...'; sleep 3; done"]
     restart: "no"
 
-  rag_systemc:
-    container_name: ollama-init
-    networks: [ai-net]
-    depends_on:
-      ollama:
-        condition: service_healthy
-    environment:
-      OLLAMA_HOST: http://ollama:11434
-    entrypoint: ["/bin/sh", "-c", "until ollama pull qwen2.5:7b; do echo 'retrying...'; sleep 3; done"]
-    restart: "no"
-
-  assistant:
-    build: .
-    container_name: assistant
+  rag-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.rag-api
+    container_name: rag-api
     networks: [ai-net]
     depends_on:
       ollama:
@@ -61,25 +59,70 @@ services:
       ollama-init:
         condition: service_completed_successfully
     ports:
-      - "8501:8501"
+      - "8001:8001"
     volumes:
-      - ./data:/app/data
-      - ./db:/app/db
+      - lancedb_data:/app/lancedb
+      - shared_uploads:/app/shared_uploads
+      - index_store:/app/index_store
+      - backend_db:/app/backend
       - hf_cache:/root/.cache/huggingface
     environment:
-      OLLAMA_URL: http://ollama:11434/api/generate
-      OLLAMA_MODEL: qwen2.5:7b
-      EMBEDDING_MODEL_NAME: intfloat/multilingual-e5-base
-      FALLBACK_EMBEDDING_MODEL_NAME: sentence-transformers/all-MiniLM-L6-v2
-    # Tests run
+      OLLAMA_HOST: http://ollama:11434
+      RAG_CONFIG_MODE: default
     healthcheck:
-      test: ["CMD-SHELL", "python -m pytest /app/tests/ -v --tb=short > /proc/1/fd/1 2>&1"]
-      interval: 300s
-      timeout: 60s
-      retries: 3
+      test: ["CMD-SHELL", "curl -f http://localhost:8001/models || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
       start_period: 120s
     restart: unless-stopped
 
-volumes:
-  ollama_models:
-  hf_cache:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: backend
+    networks: [ai-net]
+    depends_on:
+      rag-api:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - shared_uploads:/app/shared_uploads
+      - index_store:/app/index_store
+      - backend_db:/app/backend
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      RAG_API_URL: http://rag-api:8001
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  assistant:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: assistant
+    networks: [ai-net]
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./storage:/app/storage
+    environment:
+      BACKEND_URL: http://backend:8000
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8501/_stcore/health || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped

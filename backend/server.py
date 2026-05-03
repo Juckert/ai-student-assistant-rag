@@ -5,9 +5,11 @@ import cgi
 import os
 import uuid
 from urllib.parse import urlparse, parse_qs
-import requests  # 🆕 Import requests for making HTTP calls
+import requests
 import sys
 from datetime import datetime
+
+RAG_API_BASE = os.environ.get("RAG_API_URL", "http://localhost:8001")
 
 # Add parent directory to path so we can import rag_system modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -591,7 +593,7 @@ Respond with exactly one word: USE_RAG or DIRECT_LLM"""
         source_docs: List[dict] = []
 
         # Build payload for RAG API
-        rag_api_url = "http://localhost:8001/chat"
+        rag_api_url = f"{RAG_API_BASE}/chat"
         table_name = f"text_pages_{idx_ids[-1]}" if idx_ids else None
         payload: Dict[str, Any] = {
             "query": message,
@@ -706,7 +708,7 @@ Respond with exactly one word: USE_RAG or DIRECT_LLM"""
 
             print(f"Found {len(file_paths)} documents to index. Sending to RAG API...")
             
-            rag_api_url = "http://localhost:8001/index"
+            rag_api_url = f"{RAG_API_BASE}/index"
             rag_response = requests.post(rag_api_url, json={"file_paths": file_paths, "session_id": session_id})
 
             if rag_response.status_code == 200:
@@ -914,7 +916,7 @@ Respond with exactly one word: USE_RAG or DIRECT_LLM"""
             # we'll inject later when we build config_override
 
             # Delegate to advanced RAG API same as session indexing
-            rag_api_url = "http://localhost:8001/index"
+            rag_api_url = f"{RAG_API_BASE}/index"
             import requests, json as _json
             # Use the index's dedicated LanceDB table so retrieval matches
             table_name = index.get("vector_table_name")
