@@ -7,11 +7,13 @@ from typing import List, Dict, Optional, Tuple
 class ChatDatabase:
     def __init__(self, db_path: str = None):
         if db_path is None:
-            # Auto-detect environment and set appropriate path
             import os
-            if os.path.exists("/app"):  # Docker environment
+            env_path = os.getenv("DB_PATH")
+            if env_path:
+                self.db_path = env_path
+            elif os.path.exists("/app"):
                 self.db_path = "/app/backend/chat_data.db"
-            else:  # Local development environment
+            else:
                 self.db_path = "backend/chat_data.db"
         else:
             self.db_path = db_path

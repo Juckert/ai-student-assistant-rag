@@ -1,3 +1,4 @@
+import os
 import requests
 import json
 from typing import List, Dict, Any
@@ -10,9 +11,9 @@ class OllamaClient:
     """
     An enhanced client for Ollama that now handles image data for VLM models.
     """
-    def __init__(self, host: str = "http://localhost:11434"):
-        self.host = host
-        self.api_url = f"{host}/api"
+    def __init__(self, host: str | None = None):
+        self.host = (host or os.getenv("OLLAMA_HOST", "http://localhost:11434")).rstrip("/")
+        self.api_url = f"{self.host}/api"
         # (Connection check remains the same)
 
     def _image_to_base64(self, image: Image.Image) -> str:

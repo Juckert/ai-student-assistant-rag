@@ -6,6 +6,9 @@ import os
 import requests
 import sys
 import logging
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Add backend directory to path for database imports
 backend_dir = os.path.join(os.path.dirname(__file__), '..', 'backend')
@@ -20,9 +23,10 @@ from rag_system.factory import get_indexing_pipeline
 # Use auto-detection for environment-appropriate path
 db = ChatDatabase()
 
-# Get the desired agent mode from environment variables, defaulting to 'default'
-# This allows us to easily switch between 'default', 'fast', 'react', etc.
 AGENT_MODE = os.getenv("RAG_CONFIG_MODE", "default")
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+RAG_API_PORT = int(os.getenv("RAG_API_PORT", "8001"))
+EMBEDDING_DEBUG_LOG = os.getenv("EMBEDDING_DEBUG_LOG", EMBEDDING_DEBUG_LOG)
 RAG_AGENT = get_agent(AGENT_MODE)
 INDEXING_PIPELINE = get_indexing_pipeline(AGENT_MODE)
 
@@ -45,7 +49,7 @@ def _apply_index_embedding_model(idx_ids):
     
     if not idx_ids:
         debug_info += "⚠️ No index IDs provided\n"
-        with open("logs/embedding_debug.log", "a") as f:
+        with open(EMBEDDING_DEBUG_LOG, "a") as f:
             f.write(debug_info)
         return
     try:
@@ -65,7 +69,7 @@ def _apply_index_embedding_model(idx_ids):
         debug_info += f"⚠️ Could not apply index embedding model: {e}\n"
     
     # Write debug info to file
-    with open("logs/embedding_debug.log", "a") as f:
+    with open(EMBEDDING_DEBUG_LOG, "a") as f:
         f.write(debug_info)
 
 def _get_table_name_for_session(session_id):
@@ -184,7 +188,7 @@ class AdvancedRagApiHandler(http.server.BaseHTTPRequestHandler):
             if session_id:
                 try:
                     # Check if this is the first message by calling the backend server
-                    backend_url = f"http://localhost:8000/sessions/{session_id}"
+                    backend_url = f"{BACKEND_URL}/sessions/{session_id}"
                     session_resp = requests.get(backend_url)
                     if session_resp.status_code == 200:
                         session_data = session_resp.json()
@@ -343,7 +347,7 @@ class AdvancedRagApiHandler(http.server.BaseHTTPRequestHandler):
             if session_id:
                 try:
                     # Check if this is the first message by calling the backend server
-                    backend_url = f"http://localhost:8000/sessions/{session_id}"
+                    backend_url = f"{BACKEND_URL}/sessions/{session_id}"
                     session_resp = requests.get(backend_url)
                     if session_resp.status_code == 200:
                         session_data = session_resp.json()
@@ -740,7 +744,7 @@ class AdvancedRagApiHandler(http.server.BaseHTTPRequestHandler):
         response = json.dumps(data, indent=2)
         self.wfile.write(response.encode('utf-8'))
 
-def start_server(port=8001):
+def start_server(port=RAG_API_PORT):
     """Starts the API server."""
     # Use a reusable TCP server to avoid "address in use" errors on restart
     class ReusableTCPServer(socketserver.TCPServer):
@@ -754,4 +758,4 @@ def start_server(port=8001):
 
 if __name__ == "__main__":
     # To run this server: python -m rag_system.api_server
-    start_server() 
+    start_server(RAG_API_PORT)

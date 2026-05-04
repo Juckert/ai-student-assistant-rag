@@ -8,8 +8,12 @@ from urllib.parse import urlparse, parse_qs
 import requests
 import sys
 from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
 
 RAG_API_BASE = os.environ.get("RAG_API_URL", "http://localhost:8001")
+BACKEND_PORT = int(os.environ.get("BACKEND_PORT", "8000"))
 
 # Add parent directory to path so we can import rag_system modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -1083,7 +1087,7 @@ Respond with exactly one word: USE_RAG or DIRECT_LLM"""
 
 def main():
     """Main function to initialize and start the server"""
-    PORT = 8000  # 🆕 Define port
+    PORT = BACKEND_PORT
     try:
         # Initialize the database
         print("✅ Database initialized successfully")

@@ -1,4 +1,5 @@
 import json
+import os
 import threading
 import time
 from typing import Dict, List, Any
@@ -6,9 +7,15 @@ import logging
 from urllib.parse import urlparse, parse_qs
 import http.server
 import socketserver
+from dotenv import load_dotenv
+
+load_dotenv()
+
+RAG_API_PORT = int(os.getenv("RAG_API_PORT", "8001"))
+RAG_API_URL  = os.getenv("RAG_API_URL", f"http://localhost:{RAG_API_PORT}")
 
 # Import the core logic and batch processing utilities
-from rag_system.main import get_agent
+from rag_system.main import get_agent, EXTERNAL_MODELS, OLLAMA_CONFIG
 from rag_system.utils.batch_processor import ProgressTracker, timer
 
 # Set up logging
@@ -163,7 +170,7 @@ def run_indexing_with_progress(file_paths: List[str], session_id: str):
         except FileNotFoundError:
             # Fallback to default config
             config = {
-                "embedding_model_name": "Qwen/Qwen3-Embedding-0.6B",
+                "embedding_model_name": EXTERNAL_MODELS["embedding_model"],
                 "indexing": {
                     "embedding_batch_size": 50,
                     "enrichment_batch_size": 10,
@@ -175,17 +182,17 @@ def run_indexing_with_progress(file_paths: List[str], session_id: str):
                     "bm25": {"enabled": True, "index_name": "default_bm25_index"}
                 },
                 "storage": {
-                    "chunk_store_path": "./index_store/chunks/chunks.pkl",
-                    "lancedb_uri": "./index_store/lancedb",
-                    "bm25_path": "./index_store/bm25"
+                    "chunk_store_path": os.getenv("RAG_CHUNK_STORE_PATH", "./index_store/chunks/chunks.pkl"),
+                    "lancedb_uri": os.getenv("RAG_LANCEDB_URI", "./lancedb"),
+                    "bm25_path": os.getenv("RAG_BM25_PATH", "./index_store/bm25"),
                 }
             }
         
         # Initialize components
         ollama_client = OllamaClient()
         ollama_config = {
-            "generation_model": "llama3.2:1b",
-            "embedding_model": "mxbai-embed-large"
+            "generation_model": OLLAMA_CONFIG["generation_model"],
+            "embedding_model": os.getenv("OLLAMA_EMBEDDING_MODEL", "mxbai-embed-large"),
         }
         
         # Create enhanced pipeline
@@ -329,7 +336,7 @@ class EnhancedRagApiHandler(http.server.BaseHTTPRequestHandler):
                 "message": f"Indexing started for {len(file_paths)} file(s)",
                 "session_id": session_id,
                 "status": "started",
-                "progress_stream_url": f"http://localhost:8001/stream?session_id={session_id}"
+                "progress_stream_url": f"{RAG_API_URL}/stream?session_id={session_id}"
             })
             
         except json.JSONDecodeError:
@@ -410,7 +417,7 @@ class EnhancedRagApiHandler(http.server.BaseHTTPRequestHandler):
         response = json.dumps(data, indent=2)
         self.wfile.write(response.encode('utf-8'))
 
-def start_enhanced_server(port=8000):
+def start_enhanced_server(port=RAG_API_PORT):
     """Start the enhanced API server with a reusable TCP socket."""
     
     # Use a custom TCPServer that allows address reuse

@@ -3,6 +3,8 @@ import json
 import os
 from typing import List, Dict, Optional
 
+_DEFAULT_MODEL = os.getenv("OLLAMA_DEFAULT_MODEL", "llama3.2")
+
 class OllamaClient:
     def __init__(self, base_url: Optional[str] = None):
         if base_url is None:
@@ -54,7 +56,7 @@ class OllamaClient:
             print(f"Error pulling model: {e}")
             return False
     
-    def chat(self, message: str, model: str = "llama3.2", conversation_history: List[Dict] = None, enable_thinking: bool = True) -> str:
+    def chat(self, message: str, model: str = _DEFAULT_MODEL, conversation_history: List[Dict] = None, enable_thinking: bool = True) -> str:
         """Send a chat message to Ollama"""
         if conversation_history is None:
             conversation_history = []
@@ -108,7 +110,7 @@ class OllamaClient:
         except requests.exceptions.RequestException as e:
             return f"Connection error: {e}"
     
-    def chat_stream(self, message: str, model: str = "llama3.2", conversation_history: List[Dict] = None, enable_thinking: bool = True):
+    def chat_stream(self, message: str, model: str = _DEFAULT_MODEL, conversation_history: List[Dict] = None, enable_thinking: bool = True):
         """Stream chat response from Ollama"""
         if conversation_history is None:
             conversation_history = []

@@ -31,8 +31,8 @@ LLM_BACKEND = os.getenv("LLM_BACKEND", "ollama")
 # Ollama Models Configuration (for inference via Ollama)
 OLLAMA_CONFIG = {
     "host": os.getenv("OLLAMA_HOST", "http://localhost:11434"),
-    "generation_model": "qwen3:8b",  # Main text generation model
-    "enrichment_model": "qwen3:0.6b",  # Lightweight model for routing/enrichment
+    "generation_model": os.getenv("OLLAMA_GENERATION_MODEL", "qwen3:8b"),
+    "enrichment_model": os.getenv("OLLAMA_ENRICHMENT_MODEL", "qwen3:0.6b"),
 }
 
 WATSONX_CONFIG = {
@@ -45,25 +45,33 @@ WATSONX_CONFIG = {
 
 # External Model Configuration (HuggingFace models used directly)
 EXTERNAL_MODELS = {
-    "embedding_model": "Qwen/Qwen3-Embedding-0.6B",  # HuggingFace embedding model (1024 dims - fresh start)
-    "reranker_model": "answerdotai/answerai-colbert-small-v1",  # ColBERT reranker
-    "vision_model": "Qwen/Qwen-VL-Chat",  # Vision model for multimodal
-    "fallback_reranker": "BAAI/bge-reranker-base",  # Backup reranker
+    "embedding_model": os.getenv("EMBEDDING_MODEL", "Qwen/Qwen3-Embedding-0.6B"),
+    "reranker_model": os.getenv("RERANKER_MODEL", "answerdotai/answerai-colbert-small-v1"),
+    "vision_model": os.getenv("VISION_MODEL", "Qwen/Qwen-VL-Chat"),
+    "fallback_reranker": os.getenv("FALLBACK_RERANKER_MODEL", "BAAI/bge-reranker-base"),
 }
 
 # ============================================================================
 # 🔧 PIPELINE CONFIGURATIONS
 # ============================================================================
 
+# Storage paths
+_LANCEDB_URI   = os.getenv("RAG_LANCEDB_URI", "./lancedb")
+_TEXT_TABLE    = os.getenv("RAG_TEXT_TABLE",   "text_pages_v3")
+_IMAGE_TABLE   = os.getenv("RAG_IMAGE_TABLE",  "image_pages_v3")
+_BM25_PATH     = os.getenv("RAG_BM25_PATH",    "./index_store/bm25")
+_GRAPH_PATH    = os.getenv("RAG_GRAPH_PATH",   "./index_store/graph/knowledge_graph.gml")
+_BM25_INDEX    = os.getenv("RAG_BM25_INDEX",   "rag_bm25_index")
+
 PIPELINE_CONFIGS = {
     "default": {
         "description": "Production-ready pipeline with hybrid search, AI reranking, and verification",
         "storage": {
-            "lancedb_uri": "./lancedb",
-            "text_table_name": "text_pages_v3", 
-            "image_table_name": "image_pages_v3",
-            "bm25_path": "./index_store/bm25",
-            "graph_path": "./index_store/graph/knowledge_graph.gml"
+            "lancedb_uri": _LANCEDB_URI,
+            "text_table_name": _TEXT_TABLE,
+            "image_table_name": _IMAGE_TABLE,
+            "bm25_path": _BM25_PATH,
+            "graph_path": _GRAPH_PATH,
         },
         "retrieval": {
             "retriever": "multivector",
@@ -78,11 +86,11 @@ PIPELINE_CONFIGS = {
             },
             "bm25": { 
                 "enabled": True,
-                "index_name": "rag_bm25_index"
+                "index_name": _BM25_INDEX
             },
             "graph": { 
                 "enabled": False,
-                "graph_path": "./index_store/graph/knowledge_graph.gml"
+                "graph_path": _GRAPH_PATH
             }
         },
         # 🎯 EMBEDDING MODEL: Uses HuggingFace Qwen model directly
@@ -122,10 +130,10 @@ PIPELINE_CONFIGS = {
     "fast": {
         "description": "Speed-optimized pipeline with minimal overhead",
         "storage": {
-            "lancedb_uri": "./lancedb",
-            "text_table_name": "text_pages_v3",
-            "image_table_name": "image_pages_v3", 
-            "bm25_path": "./index_store/bm25"
+            "lancedb_uri": _LANCEDB_URI,
+            "text_table_name": _TEXT_TABLE,
+            "image_table_name": _IMAGE_TABLE,
+            "bm25_path": _BM25_PATH,
         },
         "retrieval": {
             "retriever": "multivector",
