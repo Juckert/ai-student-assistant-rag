@@ -59,7 +59,7 @@ services:
       ollama-init:
         condition: service_completed_successfully
     ports:
-      - "8001:8001"
+      - "8889:8889"
     volumes:
       - lancedb_data:/app/lancedb
       - shared_uploads:/app/shared_uploads
@@ -70,7 +70,7 @@ services:
       OLLAMA_HOST: http://ollama:11434
       RAG_CONFIG_MODE: default
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8001/models || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8889/models || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -87,16 +87,16 @@ services:
       rag-api:
         condition: service_healthy
     ports:
-      - "8000:8000"
+      - "8888:8888"
     volumes:
       - shared_uploads:/app/shared_uploads
       - index_store:/app/index_store
       - backend_db:/app/backend
     environment:
       OLLAMA_HOST: http://ollama:11434
-      RAG_API_URL: http://rag-api:8001
+      RAG_API_URL: http://rag-api:8889
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8888/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -118,7 +118,7 @@ services:
       - ./data:/app/data
       - ./storage:/app/storage
     environment:
-      BACKEND_URL: http://backend:8000
+      BACKEND_URL: http://backend:8888
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8501/_stcore/health || exit 1"]
       interval: 60s

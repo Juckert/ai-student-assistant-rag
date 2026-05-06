@@ -21,11 +21,11 @@ COPY backend/ ./backend/
 RUN mkdir -p lancedb index_store shared_uploads logs
 
 # Expose port
-EXPOSE 8001
+EXPOSE 8889
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8001/models || exit 1
+    CMD curl -f http://localhost:8889/models || exit 1
 
 # Run the RAG API server
 CMD ["python", "-m", "rag_system.api_server"] 
