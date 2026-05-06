@@ -68,6 +68,7 @@ services:
       - hf_cache:/root/.cache/huggingface
     env_file: .env
     environment:
+      PYTHONUNBUFFERED: "1"
       OLLAMA_HOST: http://ollama:11434
       RAG_API_URL: http://rag-api:${RAG_API_PORT:-8001}
     healthcheck:
@@ -95,6 +96,7 @@ services:
       - backend_db:/app/backend
     env_file: .env
     environment:
+      PYTHONUNBUFFERED: "1"
       OLLAMA_HOST: http://ollama:11434
       RAG_API_URL: http://rag-api:${RAG_API_PORT:-8001}
       BACKEND_URL: http://backend:${BACKEND_PORT:-8000}
