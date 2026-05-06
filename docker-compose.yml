@@ -69,6 +69,7 @@ services:
     env_file: .env
     environment:
       PYTHONUNBUFFERED: "1"
+      RAG_API_PORT: "${RAG_API_PORT:-8001}"
       OLLAMA_HOST: http://ollama:11434
       RAG_API_URL: http://rag-api:${RAG_API_PORT:-8001}
     healthcheck:
@@ -97,6 +98,7 @@ services:
     env_file: .env
     environment:
       PYTHONUNBUFFERED: "1"
+      BACKEND_PORT: "${BACKEND_PORT:-8000}"
       OLLAMA_HOST: http://ollama:11434
       RAG_API_URL: http://rag-api:${RAG_API_PORT:-8001}
       BACKEND_URL: http://backend:${BACKEND_PORT:-8000}
