@@ -26,7 +26,7 @@ db = ChatDatabase()
 AGENT_MODE = os.getenv("RAG_CONFIG_MODE", "default")
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 RAG_API_PORT = int(os.getenv("RAG_API_PORT", "8001"))
-EMBEDDING_DEBUG_LOG = os.getenv("EMBEDDING_DEBUG_LOG", EMBEDDING_DEBUG_LOG)
+EMBEDDING_DEBUG_LOG = os.getenv("EMBEDDING_DEBUG_LOG", "logs/embedding_debug.log")
 RAG_AGENT = get_agent(AGENT_MODE)
 INDEXING_PIPELINE = get_indexing_pipeline(AGENT_MODE)
 
