@@ -12,12 +12,12 @@ if ROOT_DIR not in sys.path:
 from agent.agent import MODEL as DEFAULT_OLLAMA_MODEL
 from agent.agent import NO_INFO_USER_MESSAGE, generate_answer, is_no_info_answer
 from knowledge_base import append_manual_qa
-from storage import (
+from database import (
     answer_unanswered_question,
     authenticate_user,
     get_chat_messages,
     get_user_by_id,
-    initialize_storage,
+    init_db as initialize_storage,
     list_answered_questions,
     list_users,
     list_user_chats,

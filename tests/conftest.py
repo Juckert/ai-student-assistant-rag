@@ -11,9 +11,6 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-# Stub heavy packages before rag.ingest is imported.
-# EmbeddingModel is never instantiated in tests (get_model is patched),
-# so stubs only need to satisfy the module-level imports.
 _HEAVY_PACKAGES = [
     "torch",
     "torch.nn",
