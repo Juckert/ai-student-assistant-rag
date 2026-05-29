@@ -3,6 +3,24 @@ networks:
     driver: bridge
 
 services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    networks: [ai-net]
+    environment:
+      POSTGRES_USER: ai_assistant
+      POSTGRES_PASSWORD: ai_assistant_pass
+      POSTGRES_DB: ai_assistant_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai_assistant -d ai_assistant_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
@@ -18,29 +36,9 @@ services:
       retries: 12
       start_period: 30s
     restart: unless-stopped
-    # Раскомментировать если требуется GPU inference. Убедитесь, что драйвер nvidia-container-toolkit установлен на хосте.
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
 
-  # Downloads qwen2.5:7b into the ollama server on first run
   ollama-init:
     image: ollama/ollama:latest
-    container_name: ollama-init
-    networks: [ai-net]
-    depends_on:
-      ollama:
-        condition: service_healthy
-    environment:
-      OLLAMA_HOST: http://ollama:11434
-    entrypoint: ["/bin/sh", "-c", "until ollama pull qwen2.5:7b; do echo 'retrying...'; sleep 3; done"]
-    restart: "no"
-
-  rag_systemc:
     container_name: ollama-init
     networks: [ai-net]
     depends_on:
@@ -60,6 +58,8 @@ services:
         condition: service_healthy
       ollama-init:
         condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
     ports:
       - "8501:8501"
     volumes:
@@ -71,7 +71,7 @@ services:
       OLLAMA_MODEL: qwen2.5:7b
       EMBEDDING_MODEL_NAME: intfloat/multilingual-e5-base
       FALLBACK_EMBEDDING_MODEL_NAME: sentence-transformers/all-MiniLM-L6-v2
-    # Tests run
+      DATABASE_URL: postgresql://ai_assistant:ai_assistant_pass@postgres:5432/ai_assistant_db
     healthcheck:
       test: ["CMD-SHELL", "python -m pytest /app/tests/ -v --tb=short > /proc/1/fd/1 2>&1"]
       interval: 300s
@@ -83,3 +83,4 @@ services:
 volumes:
   ollama_models:
   hf_cache:
+  postgres_data:
