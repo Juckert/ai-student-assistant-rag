@@ -150,15 +150,26 @@ def read_pdf(file_path):
     return text
 
 
+def _open_text(file_path, **kwargs):
+    """Open a text file trying UTF-8 first, then cp1251 (Windows Cyrillic)."""
+    for enc in ("utf-8-sig", "cp1251", "latin-1"):
+        try:
+            return open(file_path, "r", encoding=enc, **kwargs)
+        except UnicodeDecodeError:
+            continue
+    # latin-1 never raises UnicodeDecodeError, so we never reach here
+    raise UnicodeDecodeError(f"Cannot decode {file_path} with any known encoding")
+
+
 def read_txt(file_path):
-    with open(file_path, "r", encoding="utf-8-sig") as f:
+    with _open_text(file_path) as f:
         return f.read()
 
 
 def read_csv(file_path):
     chunks = []
 
-    with open(file_path, "r", encoding="utf-8-sig", newline="") as f:
+    with _open_text(file_path, newline="") as f:
         reader = csv.DictReader(f)
 
         for row in reader:
