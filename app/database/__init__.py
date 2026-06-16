@@ -1,4 +1,4 @@
-from database import (
+from .database import (
     answer_unanswered_question,
     authenticate_user,
     get_chat_messages,
