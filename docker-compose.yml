@@ -46,7 +46,12 @@ services:
         condition: service_healthy
     environment:
       OLLAMA_HOST: http://ollama:11434
-    entrypoint: ["/bin/sh", "-c", "until ollama pull qwen2.5:7b; do echo 'retrying...'; sleep 3; done"]
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        until ollama pull qwen3:8b; do echo 'retrying qwen3:8b...'; sleep 3; done
+        until ollama pull qwen3:0.6b; do echo 'retrying qwen3:0.6b...'; sleep 3; done
     restart: "no"
 
   assistant:
@@ -64,13 +69,11 @@ services:
       - "8501:8501"
     volumes:
       - ./data:/app/data
-      - ./db:/app/db
+      - lancedb:/app/lancedb
       - hf_cache:/root/.cache/huggingface
     environment:
-      OLLAMA_URL: http://ollama:11434/api/generate
-      OLLAMA_MODEL: qwen2.5:7b
-      EMBEDDING_MODEL_NAME: intfloat/multilingual-e5-base
-      FALLBACK_EMBEDDING_MODEL_NAME: sentence-transformers/all-MiniLM-L6-v2
+      OLLAMA_HOST: http://ollama:11434
+      LLM_BACKEND: ollama
       DATABASE_URL: postgresql://ai_assistant:ai_assistant_pass@postgres:5432/ai_assistant_db
     healthcheck:
       test: ["CMD-SHELL", "python -m pytest /app/tests/ -v --tb=short > /proc/1/fd/1 2>&1"]
@@ -83,4 +86,5 @@ services:
 volumes:
   ollama_models:
   hf_cache:
+  lancedb:
   postgres_data:
