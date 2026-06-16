@@ -9,10 +9,8 @@ if ROOT_DIR not in sys.path:
     # Streamlit runs this file as a script, so add the project root for local imports.
     sys.path.insert(0, ROOT_DIR)
 
-from agent.agent import MODEL as DEFAULT_OLLAMA_MODEL
-from agent.agent import NO_INFO_USER_MESSAGE, generate_answer, is_no_info_answer
-from knowledge_base import append_manual_qa
-from database import (
+from agent.agent import NO_INFO_USER_MESSAGE, is_no_info_answer
+from app.database.database import (
     answer_unanswered_question,
     authenticate_user,
     get_chat_messages,
@@ -27,9 +25,19 @@ from database import (
     reject_unanswered_question,
     register_student,
     save_question_answer,
+    get_db_session,
+    QAChunk,
+    DocumentChunk,
 )
-from rag.ingest import ingest, load_db, save_db
-from rag.retrieve import search
+from app.storage.filereader import FileReader
+from app.database.database import Database
+from rag_system.factory import index_from_postgres
+
+
+@st.cache_resource
+def _get_rag_agent():
+    from rag_system.factory import get_agent
+    return get_agent()
 
 st.set_page_config(page_title="ИИ-ассистент студента", layout="wide")
 
@@ -62,14 +70,11 @@ def format_timestamp(value):
 def ensure_runtime_state():
     initialize_storage()
 
-    index, docs = load_db()
-
-    # Session state keeps these objects across Streamlit reruns.
-    if "index" not in st.session_state:
-        st.session_state.index = index
-
-    if "docs" not in st.session_state:
-        st.session_state.docs = docs
+    if "chunk_count" not in st.session_state:
+        with get_db_session() as session:
+            st.session_state.chunk_count = (
+                session.query(QAChunk).count() + session.query(DocumentChunk).count()
+            )
 
     if "auth_user" not in st.session_state:
         st.session_state.auth_user = None
@@ -152,10 +157,9 @@ def render_sidebar(user):
     st.sidebar.write(f"Роль: **{role_label(user['role'])}**")
 
     if user["role"] == "admin":
-        st.sidebar.write(f"🤖 Модель: `{DEFAULT_OLLAMA_MODEL}`")
-
-        if st.session_state.docs:
-            st.sidebar.success(f"База знаний загружена: {len(st.session_state.docs)} фрагментов")
+        chunk_count = st.session_state.get("chunk_count", 0)
+        if chunk_count:
+            st.sidebar.success(f"База знаний загружена: {chunk_count} фрагментов")
         else:
             st.sidebar.warning("База знаний пока не загружена")
 
@@ -285,20 +289,15 @@ def render_student_chat(user):
     if not question:
         return
 
-    if st.session_state.index is None:
+    if not st.session_state.get("chunk_count", 0):
         st.warning("📭 База знаний пуста. Сначала администратор должен собрать индекс.")
         return
 
     with st.spinner("🔎 Ищу ответ в базе знаний..."):
         try:
-            chunks = search(
-                question,
-                st.session_state.index,
-                st.session_state.docs,
-                k=2,
-            )
-            answer = generate_answer(question, chunks)
-            sources = chunks
+            result = _get_rag_agent().run(question)
+            answer = result.get("answer", "")
+            sources = result.get("source_documents", [])
 
             if is_no_info_answer(answer):
                 # Save a user-friendly answer, but keep the original question for admin review.
@@ -359,7 +358,7 @@ def render_admin_panel(user):
 
     metric_columns = st.columns(5)
     metrics = [
-        ("Фрагментов в базе", len(st.session_state.docs) if st.session_state.docs else 0),
+        ("Фрагментов в базе", st.session_state.get("chunk_count", 0)),
         ("Файлов в data", len(get_supported_data_files())),
         ("Всего пользователей", len(users)),
         ("Студентов", student_count),
@@ -433,7 +432,11 @@ def render_admin_panel(user):
                         if not normalized_answer:
                             st.error("Введите ответ перед сохранением.")
                         else:
-                            append_manual_qa(item["question"], normalized_answer)
+                            with get_db_session() as session:
+                                session.add(QAChunk(
+                                    question=item["question"],
+                                    answer=normalized_answer,
+                                ))
                             rebuilt = build_index(
                                 get_supported_data_files(),
                                 success_message="База знаний обновлена, ответ добавлен.",
@@ -474,10 +477,11 @@ def build_index(source_files, success_message):
     st.info("Обработка документов...")
 
     try:
-        index, docs = ingest(source_files)
-        save_db(index, docs)
-        st.session_state.index = index
-        st.session_state.docs = docs
+        if isinstance(source_files, str):
+            source_files = [source_files]
+        FileReader(source_files).put_chunks_into_database(Database())
+        chunk_count = index_from_postgres()
+        st.session_state.chunk_count = chunk_count
         st.success(success_message)
         return True
     except Exception as exc:

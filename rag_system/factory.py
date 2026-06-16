@@ -47,6 +47,46 @@ def get_agent(mode: str = "default"):
     )
     return agent
 
+def index_from_postgres(mode: str = "default") -> int:
+    """
+    Reads all chunks from PostgreSQL (qa_chunks + document_chunks),
+    embeds them with Qwen, and writes the result into LanceDB for retrieval.
+    Overwrites the existing table on every call (full re-sync).
+    Returns the number of indexed chunks.
+    """
+    import numpy as np
+    from rag_system.ingestion.postgres_source import PostgresChunkSource
+    from rag_system.indexing.representations import QwenEmbedder, EmbeddingGenerator
+    from rag_system.indexing.embedders import LanceDBManager, VectorIndexer
+    from rag_system.main import PIPELINE_CONFIGS, EXTERNAL_MODELS
+
+    config = PIPELINE_CONFIGS.get(mode, PIPELINE_CONFIGS["default"])
+    storage = config["storage"]
+    table_name = storage["text_table_name"]
+
+    chunks = PostgresChunkSource().load()
+    if not chunks:
+        raise ValueError("No chunks found in PostgreSQL. Run ingestion first.")
+
+    embedder = QwenEmbedder(model_name=EXTERNAL_MODELS["embedding_model"])
+    generator = EmbeddingGenerator(embedding_model=embedder)
+    embeddings_list = generator.generate(chunks)
+    embeddings = np.array(embeddings_list, dtype=np.float32)
+
+    manager = LanceDBManager(storage["lancedb_uri"])
+    db = manager.db
+    if table_name in db.table_names():
+        db.drop_table(table_name)
+
+    VectorIndexer(manager).index(table_name, chunks, embeddings)
+
+    tbl = manager.get_table(table_name)
+    tbl.create_fts_index("text", replace=True)
+
+    print(f"Indexed {len(chunks)} chunks from PostgreSQL into LanceDB table '{table_name}'.")
+    return len(chunks)
+
+
 def get_indexing_pipeline(mode: str = "default"):
     """
     Factory function to get an instance of the Indexing Pipeline.
