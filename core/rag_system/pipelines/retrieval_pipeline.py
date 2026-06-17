@@ -12,6 +12,7 @@ from threading import Lock
 
 from rag_system.utils.ollama_client import OllamaClient
 from rag_system.retrieval.retrievers import MultiVectorRetriever, GraphRetriever
+from rag_system.constants import NO_INFO_USER_MESSAGE
 from rag_system.indexing.multimodal import LocalVisionModel
 from rag_system.indexing.representations import select_embedder
 from rag_system.indexing.embedders import LanceDBManager
@@ -470,7 +471,7 @@ ORIGINAL QUESTION: "{query}"
         print("------------------------------------")
 
         if not final_docs:
-            return {"answer": "I could not find an answer in the documents.", "source_documents": []}
+            return {"answer": NO_INFO_USER_MESSAGE, "source_documents": []}
         
         # --- Sanitize docs for JSON serialization (no NaN/Inf types) ---
         def _clean_val(v):

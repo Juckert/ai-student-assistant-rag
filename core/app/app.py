@@ -67,6 +67,7 @@ from services.knowledge_base import (
     list_data_files,
     save_uploaded_file,
 )
+from rag_system.constants import NO_INFO_USER_MESSAGE
 
 @st.cache_resource
 def _get_rag_agent():
@@ -321,7 +322,7 @@ def render_student_chat(user):
                 sources,
                 chat_id=st.session_state.selected_chat_id,
             )
-            if is_no_info_answer(answer):
+            if answer == NO_INFO_USER_MESSAGE:
                 queue_unanswered_question(user["id"], question, chat_id=chat_id)
                 st.session_state.unanswered_forwarded_notice = True
             st.session_state.selected_chat_id = chat_id
