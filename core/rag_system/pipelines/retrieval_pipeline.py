@@ -12,7 +12,7 @@ from threading import Lock
 
 from rag_system.utils.ollama_client import OllamaClient
 from rag_system.retrieval.retrievers import MultiVectorRetriever, GraphRetriever
-from rag_system.constants import NO_INFO_USER_MESSAGE
+from rag_system.utils.constants import NO_INFO_USER_MESSAGE
 from rag_system.indexing.multimodal import LocalVisionModel
 from rag_system.indexing.representations import select_embedder
 from rag_system.indexing.embedders import LanceDBManager

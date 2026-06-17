@@ -67,7 +67,7 @@ from services.knowledge_base import (
     list_data_files,
     save_uploaded_file,
 )
-from rag_system.constants import NO_INFO_USER_MESSAGE
+from rag_system.utils.constants import NO_INFO_USER_MESSAGE
 
 @st.cache_resource
 def _get_rag_agent():
