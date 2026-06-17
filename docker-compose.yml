@@ -55,7 +55,7 @@ services:
     restart: "no"
 
   assistant:
-    build: .
+    build: ./core
     container_name: assistant
     networks: [ai-net]
     depends_on:
@@ -68,8 +68,8 @@ services:
     ports:
       - "8501:8501"
     volumes:
-      - ./data:/app/data
-      - lancedb:/app/lancedb
+      - ./core/data:/app/data
+      - ./lancedb:/app/lancedb
       - hf_cache:/root/.cache/huggingface
     environment:
       OLLAMA_HOST: http://ollama:11434

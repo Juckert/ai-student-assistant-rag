@@ -6,12 +6,12 @@ __pycache__/
 venv/
 
 # Data
-data/
-db/
+core/data/
+core/db/
 
 # Streamlit
-.streamlit/
-streamlit*.log
+core/.streamlit/
+core/streamlit*.log
 
 # OS
-.DS_Store
+core/.DS_Store

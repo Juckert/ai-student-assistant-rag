@@ -1,3 +1,38 @@
+"""
+This module is the presentation layer only: UI rendering and user interaction.
+It never touches the database session, the filesystem or the RAG pipeline
+directly — every such operation goes through a backend function.
+
+Backend functions this frontend depends on
+-------------------------------------------
+
+database.database
+    init_db()
+    authenticate_user(username, password) -> user | None
+    register_student(username, password, display_name) -> user
+    get_user_by_id(user_id) -> user | None
+    list_users() -> list[user]
+    list_user_chats(user_id) -> list[chat]
+    get_chat_messages(chat_id, user_id) -> list[message]
+    save_question_answer(user_id, question, answer, sources, chat_id=None) -> chat_id
+    list_answered_questions(user_id) -> list[item]
+    mark_answered_question_seen(item_id, user_id)
+    list_unanswered_questions() -> list[item]
+    queue_unanswered_question(user_id, question, chat_id=None)
+    answer_unanswered_question(item_id, admin_id, answer)
+    reject_unanswered_question(item_id, admin_id)
+
+services.knowledge_base   (the logic that used to be inline in this file)
+    count_chunks() -> int
+    add_qa_chunk(question, answer)
+    list_data_files() -> list[str]                 # supported files in /data
+    save_uploaded_file(name, data) -> str          # returns the saved path
+    build_knowledge_index(source_files) -> int     # returns new chunk count
+
+rag_system.factory
+    get_agent()   # heavy; imported lazily and cached below
+"""
+
 import os
 import sys
 from datetime import datetime
@@ -9,8 +44,7 @@ if ROOT_DIR not in sys.path:
     # Streamlit runs this file as a script, so add the project root for local imports.
     sys.path.insert(0, ROOT_DIR)
 
-from agent.agent import NO_INFO_USER_MESSAGE, is_no_info_answer
-from app.database.database import (
+from database.database import (
     answer_unanswered_question,
     authenticate_user,
     get_chat_messages,
@@ -22,41 +56,25 @@ from app.database.database import (
     list_unanswered_questions,
     mark_answered_question_seen,
     queue_unanswered_question,
-    reject_unanswered_question,
     register_student,
+    reject_unanswered_question,
     save_question_answer,
-    get_db_session,
-    QAChunk,
-    DocumentChunk,
 )
-from app.storage.filereader import FileReader
-from app.database.database import Database
-from rag_system.factory import index_from_postgres
-
+from services.knowledge_base import (
+    add_qa_chunk,
+    build_knowledge_index,
+    count_chunks,
+    list_data_files,
+    save_uploaded_file,
+)
 
 @st.cache_resource
 def _get_rag_agent():
     from rag_system.factory import get_agent
     return get_agent()
 
+
 st.set_page_config(page_title="ИИ-ассистент студента", layout="wide")
-
-DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
-SUPPORTED_EXTENSIONS = (".pdf", ".txt", ".csv")
-
-
-def get_supported_data_files():
-    if not os.path.exists(DATA_DIR):
-        return []
-
-    files = []
-
-    for name in os.listdir(DATA_DIR):
-        path = os.path.join(DATA_DIR, name)
-        if os.path.isfile(path) and name.lower().endswith(SUPPORTED_EXTENSIONS):
-            files.append(path)
-
-    return sorted(files)
 
 
 def format_timestamp(value):
@@ -71,10 +89,7 @@ def ensure_runtime_state():
     initialize_storage()
 
     if "chunk_count" not in st.session_state:
-        with get_db_session() as session:
-            st.session_state.chunk_count = (
-                session.query(QAChunk).count() + session.query(DocumentChunk).count()
-            )
+        st.session_state.chunk_count = count_chunks()
 
     if "auth_user" not in st.session_state:
         st.session_state.auth_user = None
@@ -281,7 +296,7 @@ def render_student_chat(user):
             with st.chat_message("user" if message["role"] == "user" else "assistant"):
                 st.write(message["content"])
                 # "No info" answers should not show unrelated retrieved chunks.
-                if message["role"] == "assistant" and not is_no_info_answer(message["content"]):
+                if message["role"] == "assistant":
                     render_sources(message["sources"])
 
     question = st.chat_input("💬 Напишите ваш вопрос")
@@ -298,11 +313,6 @@ def render_student_chat(user):
             result = _get_rag_agent().run(question)
             answer = result.get("answer", "")
             sources = result.get("source_documents", [])
-
-            if is_no_info_answer(answer):
-                # Save a user-friendly answer, but keep the original question for admin review.
-                answer = NO_INFO_USER_MESSAGE
-                sources = []
 
             chat_id = save_question_answer(
                 user["id"],
@@ -359,7 +369,7 @@ def render_admin_panel(user):
     metric_columns = st.columns(5)
     metrics = [
         ("Фрагментов в базе", st.session_state.get("chunk_count", 0)),
-        ("Файлов в data", len(get_supported_data_files())),
+        ("Файлов в data", len(list_data_files())),
         ("Всего пользователей", len(users)),
         ("Студентов", student_count),
         ("Вопросов без ответа", len(unanswered_questions)),
@@ -371,7 +381,7 @@ def render_admin_panel(user):
 
     st.subheader("📂 Загрузка файла")
     file = st.file_uploader("Выберите файл", type=["pdf", "txt", "csv"])
-    existing_files = get_supported_data_files()
+    existing_files = list_data_files()
 
     if existing_files:
         build_options = ["Все файлы из папки data"] + existing_files
@@ -387,11 +397,7 @@ def render_admin_panel(user):
         st.info("В папке data пока нет поддерживаемых файлов.")
 
     if file:
-        os.makedirs(DATA_DIR, exist_ok=True)
-        path = os.path.join(DATA_DIR, file.name)
-
-        with open(path, "wb") as target_file:
-            target_file.write(file.getbuffer())
+        path = save_uploaded_file(file.name, file.getbuffer())
 
         if st.button("Построить индекс по загруженному файлу", use_container_width=True):
             build_index(path, success_message="База знаний успешно обновлена.")
@@ -432,13 +438,9 @@ def render_admin_panel(user):
                         if not normalized_answer:
                             st.error("Введите ответ перед сохранением.")
                         else:
-                            with get_db_session() as session:
-                                session.add(QAChunk(
-                                    question=item["question"],
-                                    answer=normalized_answer,
-                                ))
+                            add_qa_chunk(item["question"], normalized_answer)
                             rebuilt = build_index(
-                                get_supported_data_files(),
+                                list_data_files(),
                                 success_message="База знаний обновлена, ответ добавлен.",
                             )
                             if rebuilt:
@@ -479,30 +481,9 @@ def build_index(source_files, success_message):
     try:
         if isinstance(source_files, str):
             source_files = [source_files]
-        FileReader(source_files).put_chunks_into_database(Database())
-        chunk_count = index_from_postgres()
-        st.session_state.chunk_count = chunk_count
+        st.session_state.chunk_count = build_knowledge_index(source_files)
         st.success(success_message)
         return True
     except Exception as exc:
         st.error(str(exc))
         return False
-
-
-def main():
-    ensure_runtime_state()
-    user = get_current_user()
-
-    if user is None:
-        render_login_screen()
-        return
-
-    render_sidebar(user)
-
-    if user["role"] == "admin":
-        render_admin_panel(user)
-    else:
-        render_student_chat(user)
-
-
-main()
