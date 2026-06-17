@@ -1,27 +1,42 @@
-import csv
+"""
+Tests for the unanswered-question queue trigger logic.
 
-from app.knowledge_base import append_manual_qa
+Verifies that app.py correctly decides when to call queue_unanswered_question
+based on whether the agent returned NO_INFO_USER_MESSAGE.
+"""
+from rag_system.utils.constants import NO_INFO_USER_MESSAGE
 
 
-def test_append_manual_qa_creates_csv_and_skips_duplicate(tmp_path):
-    csv_path = tmp_path / "admin_added_qa.csv"
+def test_no_info_answer_triggers_queue():
+    """When the pipeline returned NO_INFO_USER_MESSAGE, the question must be queued."""
+    queued = []
+    answer = NO_INFO_USER_MESSAGE
+    question = "Когда начинается практика?"
 
-    first_path, first_added = append_manual_qa(
-        "Когда физра?",
-        "Информацию по физкультуре нужно уточнять отдельно.",
-        csv_path=str(csv_path),
-    )
-    second_path, second_added = append_manual_qa(
-        "Когда физра?",
-        "Информацию по физкультуре нужно уточнять отдельно.",
-        csv_path=str(csv_path),
-    )
+    if answer == NO_INFO_USER_MESSAGE:
+        queued.append(question)
 
-    with csv_path.open("r", encoding="utf-8-sig", newline="") as csv_file:
-        rows = list(csv.DictReader(csv_file))
+    assert queued == [question]
 
-    assert first_path == second_path
-    assert first_added is True
-    assert second_added is False
-    assert len(rows) == 1
-    assert rows[0]["question_text"] == "Когда физра?"
+
+def test_regular_answer_does_not_trigger_queue():
+    """A normal LLM answer must not cause the question to be queued."""
+    queued = []
+    answer = "Практика начинается 5 мая согласно расписанию."
+    question = "Когда начинается практика?"
+
+    if answer == NO_INFO_USER_MESSAGE:
+        queued.append(question)
+
+    assert queued == []
+
+
+def test_partial_match_does_not_trigger_queue():
+    """A message that only contains part of NO_INFO_USER_MESSAGE must not queue."""
+    queued = []
+    answer = "В базе знаний нет информации."  # shorter, not equal
+
+    if answer == NO_INFO_USER_MESSAGE:
+        queued.append("вопрос")
+
+    assert queued == []

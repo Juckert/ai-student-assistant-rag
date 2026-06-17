@@ -69,16 +69,17 @@ services:
       - "8501:8501"
     volumes:
       - ./core/data:/app/data
-      - ./lancedb:/app/lancedb
+      - lancedb:/app/lancedb
+      - index_store:/app/index_store
       - hf_cache:/root/.cache/huggingface
     environment:
       OLLAMA_HOST: http://ollama:11434
       LLM_BACKEND: ollama
       DATABASE_URL: postgresql://ai_assistant:ai_assistant_pass@postgres:5432/ai_assistant_db
     healthcheck:
-      test: ["CMD-SHELL", "python -m pytest /app/tests/ -v --tb=short > /proc/1/fd/1 2>&1"]
-      interval: 300s
-      timeout: 60s
+      test: ["CMD-SHELL", "curl -f http://localhost:8501/_stcore/health || exit 1"]
+      interval: 30s
+      timeout: 10s
       retries: 3
       start_period: 120s
     restart: unless-stopped
@@ -87,4 +88,5 @@ volumes:
   ollama_models:
   hf_cache:
   lancedb:
+  index_store:
   postgres_data:
